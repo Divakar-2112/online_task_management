@@ -1,8 +1,23 @@
-from flask import Blueprint,request,jsonify
-from model import db,User
+from flask import Blueprint, request, jsonify
+from model import db, User
+import re  
 
-users_route = Blueprint("users_route",__name__)
+users_route = Blueprint("users_route", __name__)
 
+# ================================================================
+# Validation 
+# ================================================================
+def is_valid_email(email):
+    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(email_regex, email)
+
+def is_valid_password(password):
+    password_regex = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$'
+    return re.match(password_regex, password)
+
+# ================================================================
+# GET USERS (All or Single)
+# ================================================================
 @users_route.route("/users", methods=["GET"])
 @users_route.route("/users/<int:user_id>", methods=["GET"])
 def get_users(user_id=None):
@@ -27,7 +42,6 @@ def get_users(user_id=None):
     role = request.args.get("role")
     status = request.args.get("status")
 
-    
     if name:
         query = query.filter(User.name.ilike(f"%{name}%"))
     if email:
@@ -40,8 +54,8 @@ def get_users(user_id=None):
         elif status.lower() in ["false", "0"]:
             query = query.filter(User.status.is_(False))
 
-    sort_by = request.args.get("sort_by", "id")  
-    order = request.args.get("order", "asc")     
+    sort_by = request.args.get("sort_by", "id")
+    order = request.args.get("order", "asc")
 
     if hasattr(User, sort_by):
         if order == "desc":
@@ -65,17 +79,75 @@ def get_users(user_id=None):
     return jsonify(users_list), 200
 
 
-@users_route.route("/user",methods=["POST"])
+# ================================================================
+# LOGIN
+# ================================================================
+@users_route.route("/login", methods=["POST"])
+def login_user():
+    data = request.get_json()
+    email = data.get("email")
+    password = data.get("password")
+    
+    if not email or not password:
+        return jsonify({"error": "Email and password are required"}), 400
+
+    user = User.query.filter_by(email=email).first()
+    
+    if not user or not user.check_password(password):
+        return jsonify({"error": "Invalid email or password"}), 401
+
+    user_details = {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "status": user.status
+    }
+
+    return jsonify({
+        "user_id": user.id,
+        "message": "Login successful",
+        "user_details": user_details
+    }), 200
+
+
+# ================================================================
+# CREATE USER 
+# ================================================================
+@users_route.route("/user", methods=["POST"])
 def create_user():
     data = request.get_json()
-    
+
+    name = data.get("name")
+    email = data.get("email")
+    password = data.get("password")
+
+    if not name or not email or not password:
+        return jsonify({"error": "Name, email, and password are required"}), 400
+
+    # Check if email format is valid
+    if not is_valid_email(email):
+        return jsonify({"error": "Invalid email format"}), 400
+
+    # Check if email already exists
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "Email already registered"}), 400
+
+    # Validate password strength
+    if not is_valid_password(password):
+        return jsonify({
+            "error": "Password must be at least 8 characters long, "
+                     "include one uppercase letter, one lowercase letter, "
+                     "one number, and one special character."
+        }), 400
+
     new_user = User(
-        name=data["name"],
-        email=data["email"],
+        name=name,
+        email=email,
         role=data.get("role", ""),
         status=data.get("status", True)
     )
-    new_user.password = data["password"]
+    new_user.password = password  
 
     db.session.add(new_user)
     db.session.commit()
@@ -83,27 +155,52 @@ def create_user():
     return jsonify({"message": "User created successfully", "user_id": new_user.id}), 201
 
 
-@users_route.route("/user/<int:user_id>",methods=["PUT"])
+# ================================================================
+# UPDATE USER 
+# ================================================================
+@users_route.route("/user/<int:user_id>", methods=["PUT"])
 def update_user(user_id):
     data = request.get_json()
-    user = User.query.get(user_id)    
+    user = User.query.get(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
     
+    # Email validation 
+    if "email" in data:
+        new_email = data["email"]
+        if not is_valid_email(new_email):
+            return jsonify({"error": "Invalid email format"}), 400
+
+        existing_user = User.query.filter_by(email=new_email).first()
+        if existing_user and existing_user.id != user.id:
+            return jsonify({"error": "Email already in use"}), 400
+
+        user.email = new_email
+
     user.name = data.get("name", user.name)
-    user.email = data.get("email", user.email)
     user.role = data.get("role", user.role)
     user.status = data.get("status", user.status)
-    
+
+    #  Password validation on update (if password is changed)
     if "password" in data:
-        user.password = data["password"]
-    
+        new_password = data["password"]
+        if not is_valid_password(new_password):
+            return jsonify({
+                "error": "Password must be at least 8 characters long, "
+                         "include one uppercase letter, one lowercase letter, "
+                         "one number, and one special character."
+            }), 400
+        user.password = new_password  
+
     db.session.commit()
     
     return jsonify({"message": "User updated successfully"}), 200
 
 
-@users_route.route("/user/<int:user_id>",methods=["DELETE"])
+# ================================================================
+#  DELETE USER
+# ================================================================
+@users_route.route("/user/<int:user_id>", methods=["DELETE"])
 def delete_user(user_id):
     user = User.query.get(user_id)
     
@@ -114,6 +211,3 @@ def delete_user(user_id):
     db.session.commit()
     
     return jsonify({"message": "User deleted successfully"}), 200
-    
-
-

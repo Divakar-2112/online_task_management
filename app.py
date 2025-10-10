@@ -15,5 +15,4 @@ app.register_blueprint(tasks_route)
 
 with app.app_context():
     db.create_all()
-    
 app.run(debug=True)
