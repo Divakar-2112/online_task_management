@@ -5,6 +5,7 @@ from enum import Enum
 
 db = SQLAlchemy()
 
+# User model
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), nullable=False)
@@ -26,8 +27,9 @@ class User(db.Model):
 
     def check_password(self, password):
         return check_password_hash(self._password, password)
-        
-        
+
+
+# Task model
 class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
@@ -40,11 +42,13 @@ class Task(db.Model):
     updated_at = db.Column(db.Date, default=date.today, onupdate=date.today)
 
 
+# Enum classes (for reference)
 class PriorityLevel(Enum):
-        LOW = "low"
-        MEDIUM = "medium"
-        HIGH = "high"
-        
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class TaskStatus(Enum):
-        PENDING = "pending"
-        COMPLETED = "completed"
+    PENDING = "pending"
+    COMPLETED = "completed"
